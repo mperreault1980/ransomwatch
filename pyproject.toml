@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ransomwatch"
+version = "0.1.0"
+description = "Check if an IP address has been associated with a ransomware group via CISA #StopRansomware advisories"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "click>=8.1",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "rich>=13.0",
+    "pdfplumber>=0.10",
+    "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+ransomwatch = "ransomwatch.cli:cli"

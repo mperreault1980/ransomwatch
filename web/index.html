@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ransomwatch — CISA Ransomware IP Lookup</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ransomwatch</h1>
+            <p class="subtitle">Check if an IP has appeared in a CISA <a href="https://www.cisa.gov/stopransomware" target="_blank" rel="noopener">#StopRansomware</a> advisory</p>
+        </header>
+
+        <div class="search-box">
+            <form id="search-form">
+                <input
+                    type="text"
+                    id="ip-input"
+                    placeholder="Enter IP address (e.g. 192[.]168[.]1[.]1)"
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+                <button type="submit" id="search-btn">Check</button>
+            </form>
+            <p class="hint">Supports defanged formats: <code>[.]</code> <code>[dot]</code> <code>(dot)</code> <code>(.)</code></p>
+        </div>
+
+        <div id="results" class="results hidden"></div>
+
+        <div id="stats-section" class="stats-section">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-number" id="stat-advisories">—</span>
+                    <span class="stat-label">Advisories</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number" id="stat-iocs">—</span>
+                    <span class="stat-label">Total IOCs</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number" id="stat-ips">—</span>
+                    <span class="stat-label">IP Addresses</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number" id="stat-groups">—</span>
+                    <span class="stat-label">Ransomware Groups</span>
+                </div>
+            </div>
+        </div>
+
+        <details class="groups-section" id="groups-section">
+            <summary>View all ransomware groups</summary>
+            <div id="groups-list" class="groups-list"></div>
+        </details>
+
+        <footer>
+            <p>Data sourced from <a href="https://www.cisa.gov/stopransomware" target="_blank" rel="noopener">CISA #StopRansomware</a> advisories (STIX 2.1 JSON).</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

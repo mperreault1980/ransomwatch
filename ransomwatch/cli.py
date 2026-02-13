@@ -90,7 +90,12 @@ def check(ip: str, as_json: bool):
 @click.option(
     "--include-pdfs", is_flag=True, help="Also parse PDF advisories for IOCs."
 )
-def update(include_pdfs: bool):
+@click.option(
+    "--discover",
+    is_flag=True,
+    help="Scrape CISA listing pages to discover new advisories beyond the built-in catalog.",
+)
+def update(include_pdfs: bool, discover: bool):
     """Download CISA advisories and populate the local database."""
     from rich.progress import Progress
 
@@ -105,12 +110,19 @@ def update(include_pdfs: bool):
     from .stix_parser import parse_stix_file
 
     with Progress(console=console) as progress:
-        task = progress.add_task("Discovering advisories...", total=None)
+        label = (
+            "Discovering advisories (live)..."
+            if discover
+            else "Discovering advisories..."
+        )
+        task = progress.add_task(label, total=None)
 
         def on_progress(msg: str):
             progress.update(task, description=msg)
 
-        advisories = discover_advisories(progress_callback=on_progress)
+        advisories = discover_advisories(
+            refresh=discover, progress_callback=on_progress
+        )
         progress.update(task, description=f"Found {len(advisories)} advisories")
         progress.update(task, completed=True)
 

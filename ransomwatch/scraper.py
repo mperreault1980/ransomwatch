@@ -1,12 +1,13 @@
 """CISA advisory discovery and file download.
 
-CISA's advisory listing page is JS-rendered, so we maintain a catalog of
-known #StopRansomware advisory IDs and scrape each advisory page directly
-to discover STIX JSON and PDF download links.
+We maintain a hardcoded catalog of known #StopRansomware advisory IDs as a
+fallback, and can optionally scrape CISA's paginated advisory listing page
+to discover new advisories automatically (--discover flag).
 """
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from urllib.parse import urljoin
@@ -15,7 +16,9 @@ import requests
 from bs4 import BeautifulSoup
 
 from .config import (
+    CISA_ADVISORIES_URL,
     CISA_BASE_URL,
+    MAX_DISCOVERY_PAGES,
     PDF_DIR,
     REQUEST_DELAY,
     REQUEST_TIMEOUT,
@@ -26,11 +29,10 @@ from .models import Advisory
 
 _SESSION: requests.Session | None = None
 
-# Known #StopRansomware advisory catalog.
+# Known #StopRansomware advisory catalog (fallback for offline use).
 # (advisory_id, title)
-# The CISA listing page is JS-rendered and can't be scraped with requests,
-# so we maintain this list. Run `ransomwatch update --refresh-catalog` or
-# contribute new entries as CISA publishes them.
+# Run `ransomwatch update --discover` to scrape CISA's listing page for new
+# advisories beyond this catalog.
 _ADVISORY_CATALOG: list[tuple[str, str]] = [
     ("aa25-203a", "#StopRansomware: Interlock"),
     ("aa25-071a", "#StopRansomware: Medusa"),
@@ -83,26 +85,132 @@ def _polite_get(url: str) -> requests.Response:
     return resp
 
 
-def discover_advisories(progress_callback=None) -> list[Advisory]:
-    """Return known #StopRansomware advisories from the built-in catalog."""
-    advisories: list[Advisory] = []
+_ADVISORY_ID_RE = re.compile(r"aa\d{2}-\d{3}a")
 
-    for adv_id, title in _ADVISORY_CATALOG:
-        # Standard CISA advisory URL pattern
-        # Some older advisories use a "-0" suffix variant
-        url = f"{CISA_BASE_URL}/news-events/cybersecurity-advisories/{adv_id}"
-        advisories.append(
-            Advisory(
-                advisory_id=adv_id,
-                title=title,
-                url=url,
-            )
+
+def _catalog_advisories() -> list[Advisory]:
+    """Build Advisory objects from the hardcoded catalog."""
+    return [
+        Advisory(
+            advisory_id=adv_id,
+            title=title,
+            url=f"{CISA_BASE_URL}/news-events/cybersecurity-advisories/{adv_id}",
         )
+        for adv_id, title in _ADVISORY_CATALOG
+    ]
+
+
+def discover_advisories_live(
+    known_ids: set[str] | None = None,
+    progress_callback=None,
+) -> list[Advisory]:
+    """Scrape CISA's paginated advisory listing for #StopRansomware entries.
+
+    Returns newly discovered Advisory objects (not already in *known_ids*).
+    Stops pagination when a full page yields no new advisories or after
+    MAX_DISCOVERY_PAGES pages.
+    """
+    if known_ids is None:
+        known_ids = set()
+
+    discovered: dict[str, Advisory] = {}
+
+    for page_num in range(MAX_DISCOVERY_PAGES):
+        url = f"{CISA_ADVISORIES_URL}?page={page_num}"
+        if progress_callback:
+            progress_callback(f"Scanning advisory listing page {page_num + 1}...")
+
+        try:
+            resp = _polite_get(url)
+        except requests.RequestException:
+            break
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        new_on_page = 0
+        links_found = 0
+
+        for link in soup.find_all("a", href=True):
+            href = link["href"]
+            # Match advisory URL pattern
+            if "/news-events/cybersecurity-advisories/aa" not in href:
+                continue
+
+            match = _ADVISORY_ID_RE.search(href)
+            if not match:
+                continue
+
+            adv_id = match.group(0)
+            title = link.get_text(strip=True)
+
+            # Filter for #StopRansomware advisories only
+            if "stopransomware" not in title.lower():
+                continue
+
+            links_found += 1
+
+            if adv_id not in known_ids and adv_id not in discovered:
+                full_url = (
+                    f"{CISA_BASE_URL}/news-events/cybersecurity-advisories/{adv_id}"
+                )
+                discovered[adv_id] = Advisory(
+                    advisory_id=adv_id,
+                    title=title,
+                    url=full_url,
+                )
+                new_on_page += 1
+
+        # Stop if this page had no StopRansomware links at all (past the end)
+        # or if all found entries were already known
+        if links_found == 0 or (new_on_page == 0 and links_found > 0):
+            break
+
+    return list(discovered.values())
+
+
+def discover_advisories(
+    refresh: bool = False,
+    progress_callback=None,
+) -> list[Advisory]:
+    """Return #StopRansomware advisories.
+
+    When *refresh* is False (default), returns only the hardcoded catalog.
+    When *refresh* is True, scrapes CISA's listing page first, then merges
+    with the catalog (live results take precedence for titles).
+    """
+    catalog = _catalog_advisories()
+
+    if not refresh:
+        if progress_callback:
+            progress_callback(f"Loaded {len(catalog)} advisories from catalog")
+        return catalog
+
+    # Live discovery mode
+    catalog_ids = {a.advisory_id for a in catalog}
+    live = discover_advisories_live(
+        known_ids=set(),  # discover everything, we merge below
+        progress_callback=progress_callback,
+    )
+
+    # Merge: live takes precedence, then fill in catalog-only entries
+    merged: dict[str, Advisory] = {a.advisory_id: a for a in live}
+    for a in catalog:
+        if a.advisory_id not in merged:
+            merged[a.advisory_id] = a
+
+    new_count = len(merged) - len(catalog_ids)
+    total = len(merged)
 
     if progress_callback:
-        progress_callback(f"Loaded {len(advisories)} advisories from catalog")
+        if new_count > 0:
+            progress_callback(
+                f"Discovered {new_count} new + {total - new_count} known = "
+                f"{total} total advisories"
+            )
+        else:
+            progress_callback(f"No new advisories found ({total} total from catalog)")
 
-    return advisories
+    return list(merged.values())
 
 
 def enrich_advisory(advisory: Advisory) -> Advisory:

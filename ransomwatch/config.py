@@ -9,7 +9,9 @@ APP_NAME = "ransomwatch"
 # CISA advisory listing (paginated)
 CISA_SEARCH_URL = "https://www.cisa.gov/search"
 CISA_BASE_URL = "https://www.cisa.gov"
+CISA_ADVISORIES_URL = f"{CISA_BASE_URL}/news-events/cybersecurity-advisories"
 SEARCH_QUERY = "#StopRansomware"
+MAX_DISCOVERY_PAGES = 30  # safety limit for paginated scraping
 
 # Local storage
 DATA_DIR = Path(user_data_dir(APP_NAME))
